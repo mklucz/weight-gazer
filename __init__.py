@@ -9,6 +9,7 @@ import random
 
 from pyexcel_ods3 import get_data
 from PIL import Image
+from numpy import mean
 
 
 def main():
@@ -44,9 +45,12 @@ class WeightGazer:
         self.meals = None
         self.df = None
         self.prepare_dataframe()
-        self.fig = self.draw_figure()
-        FileWriter(self.fig, src_wallpaper_dir, out_wallpaper_dir, appearance_frequency)
-
+        self.aspect_ratio = (16, 9)  # hardcoded for now
+        self.aspect_width = 16
+        self.aspect_height = 9
+        self.screen_width = 1920
+        self.screen_height = 1080
+        FileWriter(self, src_wallpaper_dir, out_wallpaper_dir, appearance_frequency)
 
     def prepare_dataframe(self):
         df = pd.DataFrame(self.ods_data['Sheet1'][1:])
@@ -65,11 +69,13 @@ class WeightGazer:
         self.meals = df[meal_columns]
         self.df = df
 
-    def draw_figure(self):
+    def draw_figure(self, dpi, figsize):
+        fig = plt.figure(dpi=dpi)
         ax = self.meals.plot.bar(
-            figsize=(19.2, 10.8),
+            figsize=figsize,
             stacked=True,
             legend=False,
+            ax=plt.gca()
         )
         ax.xaxis.tick_top()
         ax2 = ax.twinx()
@@ -84,21 +90,20 @@ class WeightGazer:
         )
         return plt.gcf()
 
+
 class FileWriter:
 
-    def __init__(self, fig, src_wallpaper_dir, out_wallpaper_dir, appearance_frequency):
-        self.fig = fig
+    def __init__(self, wg, src_wallpaper_dir, out_wallpaper_dir, appearance_frequency):
+        self.wg = wg
         self.src_wallpaper_dir = src_wallpaper_dir
         self.out_wallpaper_dir = out_wallpaper_dir
         src_files = os.listdir(self.src_wallpaper_dir)
-        self.temp_file = self.save_temp_file()
         self.save_files(src_files, appearance_frequency)
 
-    def save_temp_file(self):
+    def get_temp_file_path(self):
         timestamp = str(datetime.datetime.utcnow()).replace(" ", "_")
         temp_file_name = 'weight-gazer-temp-{}.png'.format(timestamp)
         temp_file_path = os.path.join(self.src_wallpaper_dir, temp_file_name)
-        plt.savefig(temp_file_path, transparent=True)
         return temp_file_path
 
     def save_files(self, src_files, appearance_frequency):
@@ -112,17 +117,49 @@ class FileWriter:
             try:
                 self.overlay_image(
                     os.path.join(self.src_wallpaper_dir, background),
-                    self.temp_file,
+                    self.wg,
                     filename,
                 )
             except Exception:
                 continue
 
-    def overlay_image(self, background, foreground, filename):
+    def overlay_image(self, background, wg, filename):
         wallpaper = Image.open(background)
-        chart = Image.open(foreground)
-        wallpaper.paste(chart, (0, 0), chart)
+        src_width, src_height = wallpaper.size
+        frame_width, frame_height, shift = \
+            self.determine_frame_dimensions_and_shift(src_width, src_height)
+        dpi = int(mean((src_width/frame_width, src_height/frame_height)) * 100)
+        figsize = (frame_width/dpi, frame_height/dpi)
+        wg.draw_figure(dpi, figsize)
+        temp_file_path = self.get_temp_file_path()
+        chart = plt.savefig(temp_file_path, transparent=True, dpi=dpi)
+        chart = Image.open(temp_file_path)
+
+        wallpaper.paste(chart, shift, chart)
         wallpaper.save(os.path.join(self.out_wallpaper_dir, filename))
+
+    def determine_frame_dimensions_and_shift(self, src_width, src_height):
+        src_aspect_ratio = src_width/src_height
+        screen_aspect_ratio = self.wg.aspect_width / self.wg.aspect_height
+        is_panoramic = None
+        fits_perfectly = False
+        if src_aspect_ratio > screen_aspect_ratio:
+            is_panoramic = True
+        elif src_aspect_ratio < screen_aspect_ratio:
+            is_panoramic = False
+        else:
+            fits_perfectly = True
+        if fits_perfectly:
+            return src_width, src_height, (0, 0)
+        if is_panoramic is True:
+            frame_width = int(src_height * screen_aspect_ratio)
+            shift = (int(0.5 * (src_width - frame_width)), 0)
+            return frame_width, src_height, shift
+        elif is_panoramic is False:
+            frame_height = int(src_width * screen_aspect_ratio / 1)
+            shift = (0, int(0.5 * (src_height - frame_height)))
+            return src_width, frame_height, shift
+
 
 if __name__ == "__main__":
     main()
