@@ -6,6 +6,8 @@ import datetime
 import matplotlib.pyplot as plt
 import pandas as pd
 import random
+import re
+import subprocess
 
 from pyexcel_ods3 import get_data
 from PIL import Image
@@ -45,11 +47,9 @@ class WeightGazer:
         self.meals = None
         self.df = None
         self.prepare_dataframe()
-        self.aspect_ratio = (16, 9)  # hardcoded for now
         self.aspect_width = 16
         self.aspect_height = 9
-        self.screen_width = 1920
-        self.screen_height = 1080
+        self.screen_width, self.screen_height = self.get_screen_size()
         FileWriter(self, src_wallpaper_dir, out_wallpaper_dir, appearance_frequency)
 
     def prepare_dataframe(self):
@@ -77,6 +77,7 @@ class WeightGazer:
             legend=False,
             ax=plt.gca()
         )
+        plt.xticks(*plt.xticks(), rotation=30)
         ax.xaxis.tick_top()
         ax2 = ax.twinx()
         ax2.plot(
@@ -90,6 +91,13 @@ class WeightGazer:
         )
         return plt.gcf()
 
+    def get_screen_size(self):
+        screen_size = str(subprocess.Popen(
+            'xrandr | grep "\*" | cut -d" " -f4',shell=True, stdout=subprocess.PIPE
+        ).communicate()[0])
+        pattern = re.compile('\d+x\d+')
+        match = re.search(pattern, screen_size).group()
+        return map(int, match.split('x'))
 
 class FileWriter:
 
@@ -114,14 +122,11 @@ class FileWriter:
         for background in images_to_overlay:
             timestamp = str(datetime.datetime.utcnow()).replace(" ", "_")
             filename = '{}-weight-gazer-{}.png'.format(background, timestamp)
-            try:
-                self.overlay_image(
-                    os.path.join(self.src_wallpaper_dir, background),
-                    self.wg,
-                    filename,
-                )
-            except Exception:
-                continue
+            self.overlay_image(
+                os.path.join(self.src_wallpaper_dir, background),
+                self.wg,
+                filename,
+            )
 
     def overlay_image(self, background, wg, filename):
         wallpaper = Image.open(background)
@@ -134,9 +139,9 @@ class FileWriter:
         temp_file_path = self.get_temp_file_path()
         chart = plt.savefig(temp_file_path, transparent=True, dpi=dpi)
         chart = Image.open(temp_file_path)
-
         wallpaper.paste(chart, shift, chart)
         wallpaper.save(os.path.join(self.out_wallpaper_dir, filename))
+        os.remove(temp_file_path)
 
     def determine_frame_dimensions_and_shift(self, src_width, src_height):
         src_aspect_ratio = src_width/src_height
@@ -156,7 +161,7 @@ class FileWriter:
             shift = (int(0.5 * (src_width - frame_width)), 0)
             return frame_width, src_height, shift
         elif is_panoramic is False:
-            frame_height = int(src_width * screen_aspect_ratio / 1)
+            frame_height = int(src_width * (1 / screen_aspect_ratio))
             shift = (0, int(0.5 * (src_height - frame_height)))
             return src_width, frame_height, shift
 
