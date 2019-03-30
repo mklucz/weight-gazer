@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import random
 import re
+import shutil
 import subprocess
 
 from pyexcel_ods3 import get_data
@@ -45,8 +46,7 @@ class WeightGazer:
         self.ods_data = ods_data
         self.columns = None
         self.meals = None
-        self.df = None
-        self.prepare_dataframe()
+        self.df = self.prepare_dataframe()
         self.aspect_width = 16
         self.aspect_height = 9
         self.screen_width, self.screen_height = self.get_screen_size()
@@ -67,10 +67,10 @@ class WeightGazer:
         df['weight'] = df['weight'].apply(lambda x: float(x.replace(',', '.')))
         meal_columns = [elem for elem in self.columns if elem.startswith('meal')]
         self.meals = df[meal_columns]
-        self.df = df
+        return df
 
     def draw_figure(self, dpi, figsize):
-        fig = plt.figure(dpi=dpi)
+        plt.figure(dpi=dpi)
         ax = self.meals.plot.bar(
             figsize=figsize,
             stacked=True,
@@ -84,20 +84,21 @@ class WeightGazer:
             ax.get_xticks(),
             self.df['weight'],
             ls='--',
-            lw=10,
+            # lw=10,
             color='pink',
             marker='o',
-            markersize=20,
+            # markersize=20,
         )
         return plt.gcf()
 
     def get_screen_size(self):
         screen_size = str(subprocess.Popen(
-            'xrandr | grep "\*" | cut -d" " -f4',shell=True, stdout=subprocess.PIPE
+            'xrandr | grep "\*" | cut -d" " -f4', shell=True, stdout=subprocess.PIPE
         ).communicate()[0])
         pattern = re.compile('\d+x\d+')
         match = re.search(pattern, screen_size).group()
         return map(int, match.split('x'))
+
 
 class FileWriter:
 
@@ -106,6 +107,7 @@ class FileWriter:
         self.src_wallpaper_dir = src_wallpaper_dir
         self.out_wallpaper_dir = out_wallpaper_dir
         src_files = os.listdir(self.src_wallpaper_dir)
+        self.del_old_files()
         self.save_files(src_files, appearance_frequency)
 
     def get_temp_file_path(self):
@@ -114,11 +116,26 @@ class FileWriter:
         temp_file_path = os.path.join(self.src_wallpaper_dir, temp_file_name)
         return temp_file_path
 
+    def del_old_files(self):
+        for file_name in os.listdir(self.out_wallpaper_dir):
+            if 'weight-gazer' in file_name:
+                os.remove(os.path.join(self.out_wallpaper_dir, file_name))
+
+    def copy_untouched_images(self, images_to_copy):
+        for file_name in images_to_copy:
+            shutil.copy2(
+                os.path.join(self.src_wallpaper_dir, file_name),
+                os.path.join(self.out_wallpaper_dir, file_name)
+            )
+
     def save_files(self, src_files, appearance_frequency):
         images_to_overlay = random.sample(
             src_files,
             int(appearance_frequency/100*len(src_files)),
         )
+        images_to_copy_unchanged =\
+            [f for f in src_files if f not in images_to_overlay]
+        self.copy_untouched_images(images_to_copy_unchanged)
         for background in images_to_overlay:
             timestamp = str(datetime.datetime.utcnow()).replace(" ", "_")
             filename = '{}-weight-gazer-{}.png'.format(background, timestamp)
@@ -130,20 +147,21 @@ class FileWriter:
 
     def overlay_image(self, background, wg, filename):
         wallpaper = Image.open(background)
-        src_width, src_height = wallpaper.size
         frame_width, frame_height, shift = \
-            self.determine_frame_dimensions_and_shift(src_width, src_height)
-        dpi = int(mean((src_width/frame_width, src_height/frame_height)) * 100)
+            self.determine_frame_dimensions_and_shift(wallpaper.size)
+        dpi = self.get_dpi(frame_width, frame_height, wallpaper.size)
         figsize = (frame_width/dpi, frame_height/dpi)
         wg.draw_figure(dpi, figsize)
         temp_file_path = self.get_temp_file_path()
-        chart = plt.savefig(temp_file_path, transparent=True, dpi=dpi)
+        plt.savefig(temp_file_path, transparent=True, dpi=dpi)
+        plt.close(plt.gcf())
         chart = Image.open(temp_file_path)
         wallpaper.paste(chart, shift, chart)
         wallpaper.save(os.path.join(self.out_wallpaper_dir, filename))
         os.remove(temp_file_path)
 
-    def determine_frame_dimensions_and_shift(self, src_width, src_height):
+    def determine_frame_dimensions_and_shift(self, wallpaper_size):
+        src_width, src_height = wallpaper_size
         src_aspect_ratio = src_width/src_height
         screen_aspect_ratio = self.wg.aspect_width / self.wg.aspect_height
         is_panoramic = None
@@ -164,6 +182,10 @@ class FileWriter:
             frame_height = int(src_width * (1 / screen_aspect_ratio))
             shift = (0, int(0.5 * (src_height - frame_height)))
             return src_width, frame_height, shift
+
+    def get_dpi(self, frame_width, frame_height, wallpaper_size):
+        src_width, src_height = wallpaper_size
+        return int(mean((src_width/frame_width, src_height/frame_height)) * 100)
 
 
 if __name__ == "__main__":
