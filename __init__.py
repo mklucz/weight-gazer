@@ -102,17 +102,20 @@ class WeightGazer:
 
 class FileWriter:
 
+    CHART_FILE_TEMPLATE = 'weight-gazer-temp-chart{}.png'
+    SHADOW_FILE_TEMPLATE = 'weight-gazer-temp-shadow{}.png'
+
     def __init__(self, wg, src_wallpaper_dir, out_wallpaper_dir, appearance_frequency):
         self.wg = wg
         self.src_wallpaper_dir = src_wallpaper_dir
         self.out_wallpaper_dir = out_wallpaper_dir
         src_files = os.listdir(self.src_wallpaper_dir)
-        self.del_old_files()
+        # self.del_old_files()
         self.save_files(src_files, appearance_frequency)
 
-    def get_temp_file_path(self):
+    def get_temp_file_path(self, template):
         timestamp = str(datetime.datetime.utcnow()).replace(" ", "_")
-        temp_file_name = 'weight-gazer-temp-{}.png'.format(timestamp)
+        temp_file_name = template.format(timestamp)
         temp_file_path = os.path.join(self.src_wallpaper_dir, temp_file_name)
         return temp_file_path
 
@@ -136,6 +139,7 @@ class FileWriter:
         images_to_copy_unchanged =\
             [f for f in src_files if f not in images_to_overlay]
         self.copy_untouched_images(images_to_copy_unchanged)
+        self.del_old_files()
         for background in images_to_overlay:
             timestamp = str(datetime.datetime.utcnow()).replace(" ", "_")
             filename = '{}-weight-gazer-{}.png'.format(background, timestamp)
@@ -152,13 +156,15 @@ class FileWriter:
         dpi = self.get_dpi(frame_width, frame_height, wallpaper.size)
         figsize = (frame_width/dpi, frame_height/dpi)
         wg.draw_figure(dpi, figsize)
-        temp_file_path = self.get_temp_file_path()
-        plt.savefig(temp_file_path, transparent=True, dpi=dpi)
+        chart_temp_file = self.get_temp_file_path(self.CHART_FILE_TEMPLATE)
+        shadow_temp_file = self.get_temp_file_path(self.SHADOW_FILE_TEMPLATE)
+        plt.savefig(chart_temp_file, transparent=True, dpi=dpi)
         plt.close(plt.gcf())
-        chart = Image.open(temp_file_path)
+        chart = Image.open(chart_temp_file)
+        shadow = chart.filte
         wallpaper.paste(chart, shift, chart)
         wallpaper.save(os.path.join(self.out_wallpaper_dir, filename))
-        os.remove(temp_file_path)
+        os.remove(chart_temp_file)
 
     def determine_frame_dimensions_and_shift(self, wallpaper_size):
         src_width, src_height = wallpaper_size
