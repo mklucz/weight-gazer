@@ -11,7 +11,10 @@ import shutil
 import subprocess
 
 from pyexcel_ods3 import get_data
-from PIL import Image
+from PIL import (
+    Image,
+    ImageFilter,
+)
 from numpy import mean
 
 
@@ -69,8 +72,9 @@ class WeightGazer:
         self.meals = df[meal_columns]
         return df
 
-    def draw_figure(self, dpi, figsize):
+    def draw_figure(self, dpi, figsize, fontsize):
         plt.figure(dpi=dpi)
+        self.set_font_sizes(fontsize)
         ax = self.meals.plot.bar(
             figsize=figsize,
             stacked=True,
@@ -84,10 +88,10 @@ class WeightGazer:
             ax.get_xticks(),
             self.df['weight'],
             ls='--',
-            # lw=10,
+            lw=dpi/10,
             color='pink',
             marker='o',
-            # markersize=20,
+            markersize=dpi/5,
         )
         return plt.gcf()
 
@@ -99,11 +103,19 @@ class WeightGazer:
         match = re.search(pattern, screen_size).group()
         return map(int, match.split('x'))
 
+    def set_font_sizes(self, fontsize):
+        plt.rcParams.update({
+            'legend.fontsize': fontsize,
+            'axes.labelsize': fontsize,
+            'axes.titlesize': fontsize,
+            'xtick.labelsize': fontsize,
+            'ytick.labelsize': fontsize
+        })
+
 
 class FileWriter:
 
     CHART_FILE_TEMPLATE = 'weight-gazer-temp-chart{}.png'
-    SHADOW_FILE_TEMPLATE = 'weight-gazer-temp-shadow{}.png'
 
     def __init__(self, wg, src_wallpaper_dir, out_wallpaper_dir, appearance_frequency):
         self.wg = wg
@@ -113,7 +125,7 @@ class FileWriter:
         # self.del_old_files()
         self.save_files(src_files, appearance_frequency)
 
-    def get_temp_file_path(self, template):
+    def make_temp_file_path(self, template):
         timestamp = str(datetime.datetime.utcnow()).replace(" ", "_")
         temp_file_name = template.format(timestamp)
         temp_file_path = os.path.join(self.src_wallpaper_dir, temp_file_name)
@@ -155,13 +167,14 @@ class FileWriter:
             self.determine_frame_dimensions_and_shift(wallpaper.size)
         dpi = self.get_dpi(frame_width, frame_height, wallpaper.size)
         figsize = (frame_width/dpi, frame_height/dpi)
-        wg.draw_figure(dpi, figsize)
-        chart_temp_file = self.get_temp_file_path(self.CHART_FILE_TEMPLATE)
-        shadow_temp_file = self.get_temp_file_path(self.SHADOW_FILE_TEMPLATE)
+        fontsize = frame_width / 150
+        wg.draw_figure(dpi, figsize, fontsize)
+        chart_temp_file = self.make_temp_file_path(self.CHART_FILE_TEMPLATE)
         plt.savefig(chart_temp_file, transparent=True, dpi=dpi)
         plt.close(plt.gcf())
         chart = Image.open(chart_temp_file)
-        shadow = chart.filte
+        shadow = self.prepare_shadow(chart.copy(), dpi)
+        wallpaper.paste(shadow, shift, shadow)
         wallpaper.paste(chart, shift, chart)
         wallpaper.save(os.path.join(self.out_wallpaper_dir, filename))
         os.remove(chart_temp_file)
@@ -192,6 +205,22 @@ class FileWriter:
     def get_dpi(self, frame_width, frame_height, wallpaper_size):
         src_width, src_height = wallpaper_size
         return int(mean((src_width/frame_width, src_height/frame_height)) * 100)
+
+    def prepare_shadow(self, im, dpi):
+
+        def is_black(color_tuple):
+            return color_tuple[0:3] == (0, 0, 0)
+
+        pixel_data = im.load()
+        width, height = im.size
+        for y in range(height):
+            for x in range(width):
+                if not is_black(pixel_data[x, y]):
+                    pixel_data[x, y] = (255, 255, 255, 0)
+                else:
+                    pixel_data[x, y] = (255, 255, 255, 255)
+        im = im.filter(ImageFilter.GaussianBlur(radius=dpi/50))
+        return im
 
 
 if __name__ == "__main__":
