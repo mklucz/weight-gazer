@@ -5,9 +5,11 @@ import argparse
 import datetime
 import matplotlib.pyplot as plt
 import pandas as pd
+import psutil
 import random
 import re
 import shutil
+import signal
 import subprocess
 
 from pyexcel_ods3 import get_data
@@ -116,6 +118,8 @@ class WeightGazer:
 class FileWriter:
 
     CHART_FILE_TEMPLATE = 'weight-gazer-temp-chart{}.png'
+    SET_IMG_SRC = "gsettings set org.cinnamon.desktop.background.slideshow image-source 'directory://{path}'"
+
 
     def __init__(self, wg, src_wallpaper_dir, out_wallpaper_dir, appearance_frequency):
         self.wg = wg
@@ -150,24 +154,25 @@ class FileWriter:
         )
         images_to_copy_unchanged =\
             [f for f in src_files if f not in images_to_overlay]
+        self.slideshow_enabled(False)
         self.copy_untouched_images(images_to_copy_unchanged)
         self.del_old_files()
-        for background in images_to_overlay:
-            timestamp = str(datetime.datetime.utcnow()).replace(" ", "_")
-            filename = '{}-weight-gazer-{}.png'.format(background, timestamp)
+        for src_file_name in images_to_overlay:
             self.overlay_image(
-                os.path.join(self.src_wallpaper_dir, background),
+                os.path.join(self.src_wallpaper_dir, src_file_name),
                 self.wg,
-                filename,
+                src_file_name,
             )
+        self.slideshow_enabled(True)
 
-    def overlay_image(self, background, wg, filename):
+
+    def overlay_image(self, background, wg, out_file_name):
         wallpaper = Image.open(background)
         frame_width, frame_height, shift = \
             self.determine_frame_dimensions_and_shift(wallpaper.size)
         dpi = self.get_dpi(frame_width, frame_height, wallpaper.size)
         figsize = (frame_width/dpi, frame_height/dpi)
-        fontsize = frame_width / 150
+        fontsize = frame_width / 200
         wg.draw_figure(dpi, figsize, fontsize)
         chart_temp_file = self.make_temp_file_path(self.CHART_FILE_TEMPLATE)
         plt.savefig(chart_temp_file, transparent=True, dpi=dpi)
@@ -176,7 +181,7 @@ class FileWriter:
         shadow = self.prepare_shadow(chart.copy(), dpi)
         wallpaper.paste(shadow, shift, shadow)
         wallpaper.paste(chart, shift, chart)
-        wallpaper.save(os.path.join(self.out_wallpaper_dir, filename))
+        wallpaper.save(os.path.join(self.out_wallpaper_dir, out_file_name))
         os.remove(chart_temp_file)
 
     def determine_frame_dimensions_and_shift(self, wallpaper_size):
@@ -222,6 +227,16 @@ class FileWriter:
         im = im.filter(ImageFilter.GaussianBlur(radius=dpi/50))
         return im
 
+    def signal_process(self, proc_name, sig):
+        for p in psutil.process_iter():
+            if p.name() == proc_name:
+                os.kill(p.pid, sig)
+
+    def slideshow_enabled(self, val):
+        val = str(val).lower()
+        subprocess.run(
+            "gsettings set org.cinnamon.desktop.background.slideshow slideshow-enabled {val}".format(val=val).split(' ')
+        )
 
 if __name__ == "__main__":
     main()
